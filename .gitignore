@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.env
+.venv/
+venv/
+.DS_Store
+Thumbs.db
+
+# 本地复盘文档，不打算公开
+产品说明与面试.md

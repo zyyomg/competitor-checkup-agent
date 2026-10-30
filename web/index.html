@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>竞品体检 Agent</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#FBFAF7;--ink:#1F1D19;--ink2:#5A564E;--ink3:#8E8A81;--line:#E5E1D8;
+--teal:#0F6E56;--teal-bg:#EAF4F0;--amber:#9A6B12;--amber-bg:#FDF6E7;--red:#A32D2D;--red-bg:#FBEDEC}
+body{background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.65;font-size:14px}
+.wrap{max-width:980px;margin:0 auto;padding:34px 24px 70px}
+.top{display:flex;align-items:baseline;gap:12px;border-bottom:1px solid var(--line);padding-bottom:16px}
+.top h1{font-size:19px;font-weight:600;letter-spacing:-.01em}
+.top .sub{font-size:12.5px;color:var(--ink3)}
+.top .badge{margin-left:auto;font-size:11px;color:var(--teal);background:var(--teal-bg);padding:3px 9px;border-radius:20px}
+.desc{font-size:13px;color:var(--ink2);margin:14px 0 20px;max-width:660px}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:14px}
+.card h2{font-size:12.5px;font-weight:600;color:var(--ink3);letter-spacing:.06em;margin-bottom:12px}
+textarea{width:100%;min-height:74px;border:1px solid var(--line);border-radius:9px;padding:11px 13px;
+font-family:inherit;font-size:14px;line-height:1.6;resize:vertical;background:#FDFCFA;color:var(--ink)}
+textarea:focus{outline:none;border-color:var(--teal);background:#fff}
+.tpl{margin-top:12px;padding-top:11px;border-top:1px dashed var(--line)}
+.tpl-h{font-size:11.5px;color:var(--ink3);margin-bottom:8px}
+.tpl-h b{font-weight:600;color:var(--ink2)}
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{background:#FDFCFA;border:1px solid var(--line);color:var(--ink2);border-radius:16px;
+padding:5px 12px;font-size:12px;line-height:1.5;text-align:left}
+.chip:hover{border-color:var(--teal);color:var(--teal);background:var(--teal-bg)}
+.chip.on{border-color:var(--teal);background:var(--teal-bg);color:var(--teal)}
+.chip em{font-style:normal;font-weight:600;color:var(--ink);margin-right:5px}
+.chip:hover em,.chip.on em{color:var(--teal)}
+.row{display:flex;gap:12px;align-items:center;margin-top:12px;flex-wrap:wrap}
+label.n{font-size:12.5px;color:var(--ink2);display:flex;align-items:center;gap:6px}
+input[type=number]{width:56px;border:1px solid var(--line);border-radius:7px;padding:5px 8px;font-family:inherit;font-size:13px;background:#FDFCFA}
+button{font-family:inherit;font-size:13.5px;border-radius:8px;padding:9px 20px;border:1px solid transparent;cursor:pointer;transition:.15s}
+.go{background:var(--teal);color:#fff;margin-left:auto}
+.go:hover{background:#0b5544}
+.go:disabled{background:#C9C4B8;cursor:not-allowed}
+.ghost{background:#fff;border-color:var(--line);color:var(--ink2);padding:6px 14px;font-size:12.5px}
+.ghost:hover{border-color:var(--ink3)}
+.flow{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
+@media(max-width:780px){.flow{grid-template-columns:repeat(3,1fr)}}
+.step{border:1px solid var(--line);border-radius:9px;padding:10px 10px 11px;background:#FDFCFA;position:relative}
+.step .sid{font-size:10.5px;color:var(--ink3);letter-spacing:.08em}
+.step .nm{font-size:12.5px;margin-top:2px;font-weight:500}
+.step .ms{font-size:10.5px;color:var(--ink3);margin-top:3px;height:14px}
+.step.running{border-color:var(--teal);background:var(--teal-bg)}
+.step.done{border-color:#CFE3D9;background:#F5FAF7}
+.step.wait{border-color:#EBD9AE;background:var(--amber-bg)}
+.step.error{border-color:#E8BCB9;background:var(--red-bg)}
+.dot{position:absolute;top:11px;right:11px;width:7px;height:7px;border-radius:50%;background:#D8D4C9}
+.step.running .dot{background:var(--teal);animation:pulse 1s infinite}
+.step.done .dot{background:#2E9E78}
+.step.wait .dot{background:#C99A2E}
+.step.error .dot{background:var(--red)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+.gate{border:1px solid #EBD9AE;background:var(--amber-bg);border-radius:12px;padding:18px 20px;margin-bottom:14px}
+.gate .gt{font-size:14px;font-weight:600;color:#6E4C0C;display:flex;align-items:center;gap:8px}
+.gate .gd{font-size:12.5px;color:#7A5D22;margin:6px 0 14px}
+.kv{display:flex;gap:10px;font-size:13px;margin-bottom:7px;align-items:flex-start}
+.kv b{color:var(--ink3);font-weight:400;font-size:12px;min-width:56px;padding-top:2px}
+.kv span{flex:1}
+.cov{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 12px}
+.cov .ci{flex:1;min-width:180px;border:1px solid #E5E1D8;border-radius:8px;padding:7px 10px;background:#fff;font-size:11.5px;color:#4A4741;line-height:1.5}
+.cov .ci b{display:block;font-size:11px;color:#0F6E56;margin-bottom:2px}
+.cov .ci.zero{border-color:#EFCFCB;background:#FDF3F2;color:#8A2B22}
+.cov .ci.zero b{color:#A32D2D}
+.cov .cn{float:right;font-weight:600;font-size:11px;color:#7A7770}
+.warn{margin:10px 0 2px;padding:10px 12px;background:#FDF3F2;border:1px solid #EFCFCB;border-radius:8px;font-size:12px;color:#8A2B22}
+.warn b{font-size:12px}
+.warn .wi{margin-top:5px;line-height:1.55;color:#6B2620}
+.warn .wi span{color:#9A6B65}
+.pill{display:inline-block;font-size:11.5px;background:#fff;border:1px solid #EBD9AE;border-radius:20px;padding:2px 10px;margin:0 6px 6px 0;color:#6E4C0C}
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+th{background:#F7F5EF;text-align:left;padding:7px 9px;font-weight:500;font-size:11.5px;color:var(--ink2);border-bottom:1px solid var(--line)}
+td{padding:7px 9px;border-bottom:1px solid #F0EDE5;vertical-align:top}
+td[contenteditable]{outline:none;border-radius:4px}
+td[contenteditable]:focus{background:#FFFBEE;box-shadow:inset 0 0 0 1px #EBD9AE}
+.tag{font-size:10.5px;padding:1px 7px;border-radius:9px;background:#F1EFE8;color:var(--ink2);white-space:nowrap}
+.del{background:none;border:none;color:var(--ink3);cursor:pointer;font-size:15px;padding:0 4px}
+.ed1{flex:1;font:inherit;font-size:13px;padding:5px 9px;border:1px solid #E3D9C2;border-radius:7px;background:#fff;color:#1F1D19}
+.ed{width:100%;font:inherit;font-size:13px;line-height:1.6;padding:6px 9px;border:1px solid #E3D9C2;border-radius:7px;background:#fff;color:#1F1D19;resize:vertical;margin-bottom:6px}
+.ed:focus,.ed1:focus{outline:none;border-color:#0F6E56;box-shadow:0 0 0 2px rgba(15,110,86,.1)}
+.back{background:none;border:1px solid #D8D4C9;color:#4A4741;border-radius:8px;padding:7px 14px;font-size:12.5px;cursor:pointer;margin-right:12px}
+.back:hover{border-color:#B9B3A5;background:#fff}
+td[contenteditable]{outline:none;cursor:text;min-width:60px}
+td[contenteditable]:focus{background:#FFFCF0;box-shadow:inset 0 0 0 1px #E3D9C2}
+.del:hover{color:var(--red)}
+.res{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.res .big{font-size:22px;font-weight:600;color:var(--teal)}
+.res .lb{font-size:11.5px;color:var(--ink3)}
+.res table{width:auto;min-width:320px;margin:0}
+.err{background:var(--red-bg);border:1px solid #E8BCB9;color:#7A2320;font-size:12.5px;padding:10px 13px;border-radius:8px;margin-bottom:12px;white-space:pre-wrap}
+.hint{font-size:11.5px;color:var(--ink3);margin-top:10px}
+.step.pick{cursor:pointer}
+.step.pick:hover{border-color:#B9B3A5;background:#fff}
+.step .see{position:absolute;right:9px;bottom:7px;font-size:9.5px;color:#BEB9AD;letter-spacing:.04em}
+.step.pick:hover .see{color:var(--teal)}
+.mask{position:fixed;inset:0;background:rgba(31,29,25,.42);display:none;z-index:60;align-items:center;justify-content:center;padding:26px}
+.mask.on{display:flex}
+.panel{background:#fff;border-radius:14px;max-width:880px;width:100%;max-height:84vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 18px 54px rgba(0,0,0,.2)}
+.ph{padding:15px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;flex:none}
+.ph b{font-size:15px;font-weight:600}
+.ph .st{font-size:11px;color:var(--ink3)}
+.ph .x{margin-left:auto;background:none;border:none;font-size:20px;line-height:1;color:var(--ink3);cursor:pointer;padding:0 4px}
+.ph .x:hover{color:var(--ink)}
+.pb{padding:16px 20px 22px;overflow:auto}
+.pf{padding:12px 20px;border-top:1px solid var(--line);display:flex;gap:10px;align-items:center;background:#FCFBF8;flex:none;flex-wrap:wrap}
+.pf .hint{margin:0}
+.emp{font-size:13px;color:var(--ink3);padding:18px 0}
+.ol{margin:0;padding-left:20px;font-size:13px}
+.ol li{margin-bottom:5px}
+.pat2{border:1px solid var(--line);border-radius:9px;padding:11px 13px;margin-bottom:9px;background:#FDFCFA}
+.pat2 .t{font-weight:600;font-size:13px}
+.pat2 .t span{font-weight:400;font-size:11px;color:var(--ink3);margin-left:8px}
+.pat2 .i{font-size:12.5px;color:var(--ink2);margin-top:4px}
+.pat2 .e{font-size:11.5px;color:var(--red);margin-top:4px}
+.pat2 .s{font-size:12px;color:var(--teal);margin-top:5px;background:var(--teal-bg);padding:6px 9px;border-radius:6px}
+.q{max-width:330px}
+.q .a{font-size:12px;color:var(--ink2);line-height:1.55}
+.q .r{font-size:11px;color:var(--ink3);margin-top:3px}
+
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="top">
+  <h1>竞品体检 Agent</h1>
+  <span class="sub">一句话需求 → 一份带证据的评测报告</span>
+  <span class="badge" id="statusBadge">待启动</span>
+</div>
+
+<p class="desc">六步流水线，两道人工卡点。第 2 步和第 3 步之间必须人审——因为造题的质量决定后面全部，这一步不能交给模型自己说了算。</p>
+
+<div class="card">
+  <h2>一句话需求</h2>
+  <textarea id="brief" oninput="clearChip()" placeholder="例：评一下语音助手在婴儿冲奶粉场景的表现"></textarea>
+  <div class="tpl">
+    <div class="tpl-h">不知道从哪写起？<b>点一条套进来</b>，把产品名换成你要测的那个就行。</div>
+    <div class="chips">
+      <button class="chip" onclick="useTpl(this)" data-t="评一下家居语音助手在设备控制场景的表现，重点看信息不全时会不会瞎猜"><em>智能家居</em>设备控制会不会瞎猜</button>
+      <button class="chip" onclick="useTpl(this)" data-t="评一下母婴助手在婴儿喂养和用药场景的表现，重点看高风险问题会不会乱给建议"><em>母婴健康</em>高风险问题会不会乱答</button>
+      <button class="chip" onclick="useTpl(this)" data-t="评一下客服机器人在退换货场景的表现，重点看会不会为了安抚用户而乱承诺"><em>客服售后</em>会不会为了安抚乱承诺</button>
+      <button class="chip" onclick="useTpl(this)" data-t="评一下理财助手在基金推荐场景的表现，重点看会不会漏掉风险提示"><em>理财顾问</em>会不会漏掉风险提示</button>
+    </div>
+  </div>
+  <div class="row">
+    <label class="n">用例条数 <input type="number" id="n" value="6" min="2" max="12"></label>
+    <label class="n"><input type="checkbox" id="auto"> 跳过卡点（演示用）</label>
+    <button class="go" id="go" onclick="start()">开始体检</button>
+  </div>
+  <div class="hint">用例数 × 被测对象数 = 实际调用次数。6 条 × 2 个对象 ≈ 1 分钟、几毛钱。</div>
+</div>
+
+<div class="card">
+  <h2>执行流程</h2>
+  <div class="flow" id="flow"></div>
+</div>
+
+<div id="gateBox"></div>
+
+<div class="card" id="resultBox" style="display:none">
+  <h2>体检结果</h2>
+  <div class="res" id="res"></div>
+</div>
+
+<div id="errBox"></div>
+
+<div class="mask" id="mask" onclick="if(event.target===this)closeStep()">
+  <div class="panel">
+    <div class="ph"><b id="stepTitle"></b><span class="st" id="stepSub"></span>
+      <button class="x" onclick="closeStep()">×</button></div>
+    <div class="pb" id="stepBody"></div>
+    <div class="pf" id="stepFoot"></div>
+  </div>
+</div>
+
+</div>
+
+<script>
+const STEPS = [
+  ["S1","解析需求"],["S2","生成评测集"],["S3","采集回答"],
+  ["S4","逐条判分"],["S5","归因问题"],["S6","生成报告"]
+];
+let RUN = null, TIMER = null;
+let LAST = null;     // 最近一次状态，步骤回看面板直接读它，不再单独请求
+let GATE_KEY = "";   // 卡点面板的内容签名：没变就不重绘，否则轮询会冲掉正在输入的内容
+
+function el(id){ return document.getElementById(id); }
+
+// 模板：把整句塞进输入框，光标留末尾，人只需要改产品名。
+// 点过的 chip 高亮，一旦开始打字就撤掉——不然会让人以为「这条模板还生效着」。
+function useTpl(btn){
+  const t = btn.dataset.t, ta = el("brief");
+  ta.value = t;
+  ta.focus();
+  try{ ta.setSelectionRange(t.length, t.length); }catch(e){}
+  document.querySelectorAll(".chip").forEach(b => b.classList.toggle("on", b === btn));
+}
+function clearChip(){
+  document.querySelectorAll(".chip.on").forEach(b => b.classList.remove("on"));
+}
+
+function drawFlow(steps){
+  el("flow").innerHTML = STEPS.map(([sid,nm]) => {
+    const s = (steps && steps[sid]) || {status:"pending", ms:0, note:""};
+    let cls = "step";
+    if (s.status === "running") cls += " running";
+    else if (s.status === "done") cls += " done";
+    else if (s.status === "error") cls += " error";
+    if (s.note && s.note.includes("待人工确认")) cls += " wait";
+    const ms = s.status === "done" && s.ms ? (s.ms > 1000 ? (s.ms/1000).toFixed(1)+"s" : s.ms+"ms") : "";
+    const pick = RUN ? " pick" : "";
+    const tip = RUN ? ' title="点开回看这一步的产物，也可以从这里退回上一道卡点"' : "";
+    return `<div class="${cls}${pick}"${tip} onclick="openStep('${sid}')"><div class="dot"></div>
+      <div class="sid">${sid}</div><div class="nm">${nm}</div>
+      <div class="ms">${ms}</div>${RUN ? '<div class="see">查看</div>' : ""}</div>`;
+  }).join("");
+}
+
+function setBadge(t){
+  const b = el("statusBadge");
+  b.textContent = t;
+}
+
+async function start(){
+  const brief = el("brief").value.trim();
+  if(!brief){ alert("先写一句需求"); return; }
+  el("go").disabled = true;
+  el("errBox").innerHTML = "";
+  try{
+    const r = await fetch("/api/start", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({brief, n: +el("n").value, auto: el("auto").checked})});
+    const d = await r.json();
+    if(d.error){ alert(d.error); el("go").disabled = false; return; }
+    RUN = d.run;
+    poll();
+    TIMER = setInterval(poll, 900);
+  }catch(e){ alert("启动失败：" + e.message); el("go").disabled = false; }
+}
+
+function renderGate(s){
+  if(s.status === "awaiting_plan" && s.plan){
+    const p = s.plan;
+    el("gateBox").innerHTML = `<div class="gate">
+      <div class="gt">卡点 1 · 请确认「测什么」</div>
+      <div class="gd">Agent 会造出自己测不了的维度（比如纯文本接口却要测语音识别率）。这一步必须人看一眼。<b>下面每个字都能直接改</b>，改完点确认才生效。</div>
+      <div class="kv"><b>场景</b><span>${esc(p["场景"]||"")}</span></div>
+      <div class="kv"><b>目标用户</b><span>${esc(p["目标用户"]||"")}</span></div>
+      <div class="kv"><b>场景名</b><input class="ed1" id="pName" value="${esc(p["场景名"]||"")}" placeholder="6-14 字，做报告标题"></div>
+      <div class="kv"><b>评测维度</b><div style="flex:1">${[0,1,2].map(i=>`<textarea class="ed" id="d${i}" rows="2" placeholder="第 ${i+1} 条维度（留空表示不要这条）">${esc((p["评测维度"]||[])[i]||"")}</textarea>`).join("")}</div></div>
+      <div class="kv"><b>风险提示</b><div style="flex:1"><textarea class="ed" id="pRisk" rows="2">${esc(p["风险提示"]||"")}</textarea></div></div>
+      ${warnBlock(s.warn_plan)}
+      <div class="row" style="margin-top:14px"><button class="go" style="margin-left:0" onclick="approve()">确认，去造题</button></div>
+    </div>`;
+  } else if(s.status === "awaiting_cases" && s.cases){
+    window.__cases = s.cases;
+    el("gateBox").innerHTML = `<div class="gate">
+      <div class="gt">卡点 2 · 请确认「拿什么测」</div>
+      <div class="gd">用例的判据就是后面打分的标准。判据写不清，报告就不可信。可以直接改文字或删掉不合适的行。</div>
+      ${covBlock(s.coverage)}${warnBlock(s.warn_cases)}<table><thead><tr><th style="width:46px">编号</th><th style="width:70px">类别</th>
+      <th>用户说（可改）</th><th>判据（可改）</th><th style="width:34px"></th></tr></thead>
+      <tbody id="caseBody">${s.cases.map((c,i)=>`<tr data-cid="${esc(c.id)}">
+        <td class="tag">${esc(c.id)}</td>
+        <td><span class="tag">${esc(c["类别"]||"")}</span></td>
+        <td contenteditable data-k="用户话术">${esc(c["用户话术"]||"")}</td>
+        <td contenteditable data-k="判据">${esc(c["判据"]||"")}</td>
+        <td><button class="del" onclick="this.closest('tr').remove()">×</button></td>
+      </tr>`).join("")}</tbody></table>
+      <div class="row" style="margin-top:14px"><button class="back" onclick="backToPlan()">← 返回卡点 1 改方案</button><button class="go" style="margin-left:0" onclick="approveCases()">确认，开始跑批</button>
+      <span class="hint" style="margin:0">预计 ${s.cases.length} 条 × ${(s.objects||[]).length} 个对象</span></div>
+    </div>`;
+  } else if(s.status === "running" || s.status === "done"){
+    el("gateBox").innerHTML = "";
+  }
+}
+
+async function poll(){
+  if(!RUN) return;
+  try{
+    const r = await fetch("/api/state?run=" + encodeURIComponent(RUN));
+    const s = await r.json();
+    if(s.error) return;
+    render(s);
+    if(s.status === "done" || s.status === "error"){
+      clearInterval(TIMER); TIMER = null;
+      if(s.status === "done"){ el("go").disabled = false; el("gateBox").innerHTML = ""; }
+    }
+  }catch(e){}
+}
+
+function render(s){
+  LAST = s;
+  drawFlow(s.steps);
+  const map = {new:"待启动", running:"执行中", awaiting_plan:"卡点 1 · 待确认方案",
+    awaiting_cases:"卡点 2 · 待确认用例", done:"已完成", error:"出错"};
+  setBadge(map[s.status] || s.status);
+
+  if(s.status === "error" && s.error){
+    el("errBox").innerHTML = `<div class="err">执行失败：${esc(s.error)}</div>`;
+  }
+
+  // 900ms 轮询一次。内容没变就绝不重绘——否则正在输入的光标、刚删掉的行
+  // 会在下一次轮询时被整块冲掉，表现就是「点了能打字但打不进去」。
+  const gk = gateKey(s);
+  if(gk !== GATE_KEY){ GATE_KEY = gk; renderGate(s); }
+
+  if(s.agg && s.agg.length){
+    el("resultBox").style.display = "";
+    const best = s.agg.reduce((a,b)=> a.avg >= b.avg ? a : b);
+    el("res").innerHTML = `
+      <div><div class="big">${best.avg.toFixed(1)}<span style="font-size:13px;font-weight:400;color:#8E8A81"> / 6</span></div>
+      <div class="lb">最高分 · ${esc(best.name)}</div></div>
+      <table><thead><tr><th>被测对象</th><th>综合分</th></tr></thead><tbody>
+      ${s.agg.map(a=>`<tr><td>${esc(a.name)}</td><td><b>${a.avg.toFixed(1)}</b></td></tr>`).join("")}
+      </tbody></table>
+      ${s.has_report ? `<button class="go" style="margin-left:auto" onclick="window.open('/report?run='+encodeURIComponent(RUN),'_blank')">打开完整报告</button>` : ""}`;
+  }
+}
+
+async function approve(){
+  if(el("d0")){                       // 卡点 1：先把人改过的方案存下来，再放行
+    const dims = [0,1,2].map(i => ((el("d"+i)||{}).value || "").trim()).filter(Boolean);
+    if(!dims.length){ alert("至少留一条评测维度"); return; }
+    await fetch("/api/edit_plan", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({run: RUN, plan: {
+        "场景名": ((el("pName")||{}).value || "").trim(),
+        "评测维度": dims,
+        "风险提示": ((el("pRisk")||{}).value || "").trim()
+      }})});
+  }
+  await fetch("/api/approve", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({run: RUN})});
+  GATE_KEY = "";
+  el("gateBox").innerHTML = "";
+  if(!TIMER) TIMER = setInterval(poll, 900);
+}
+
+async function backToPlan(){
+  if(!confirm("退回卡点 1 会删掉已生成的这批用例，改完方案后重新造题。\n\n已跑过的步骤不受影响，继续吗？")) return;
+  await fetch("/api/back", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({run: RUN})});
+  GATE_KEY = "";
+  el("gateBox").innerHTML = "";
+  await poll();
+  if(!TIMER) TIMER = setInterval(poll, 900);
+}
+
+async function approveCases(){
+  const rows = [...document.querySelectorAll("#caseBody tr")];
+  if(!rows.length){ alert("至少留一条用例"); return; }
+  const origin = {};
+  (window.__cases || []).forEach(c => origin[c.id] = c);
+  const cases = rows.map(tr => {
+    const base = Object.assign({}, origin[tr.dataset.cid] || {id: tr.dataset.cid});
+    tr.querySelectorAll("td[contenteditable]").forEach(td => base[td.dataset.k] = td.textContent.trim());
+    return base;
+  });
+  await fetch("/api/edit_cases", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({run: RUN, cases})});
+  await approve();
+}
+
+function gateKey(s){
+  if(s.status === "awaiting_plan") return "p:" + JSON.stringify(s.plan || {});
+  if(s.status === "awaiting_cases") return "c:" + (s.cases||[]).map(c => c.id + "|" + (c["用户话术"]||"").length).join(",");
+  return "x:" + s.status;
+}
+function covBlock(cov){
+  if(!cov || !cov.length) return "";
+  const miss = cov.filter(x => !x.n).length;
+  return `<div class="cov">` + cov.map(x =>
+      `<div class="ci${x.n ? "" : " zero"}"><b>维度 ${x.i}${x.n ? "" : " · 没有用例"}
+        <span class="cn">${x.n} 条</span></b>${esc(x.name)}</div>`).join("") + `</div>` +
+    (miss ? `<div class="warn"><b>${miss} 条维度一条用例都没有</b>
+      <div class="wi">这不是排版问题：报告会照常写「已评测 3 个维度」，实际有一条从没被验证过。
+      补齐或直接删掉那条维度，别带着缺口往下跑。</div></div>` : "");
+}
+function warnBlock(list){
+  if(!list || !list.length) return "";
+  return `<div class="warn"><b>自检：${list.length} 处可能需要你确认能不能测</b>` +
+    list.map(w => `<div class="wi">${w.id ? esc(w.id) + " · " : ""}${esc(w.text)}<span>　—— ${esc(w.why)}，请确认这是「要求它承认不知道」还是「要求它去查」</span></div>`).join("") +
+    `</div>`;
+}
+const STEP_DESC = {
+  S1: "方案：测什么、测哪些维度", S2: "评测集：拿什么测",
+  S3: "采集：每个对象对每条用例的原始回答", S4: "判分：三条评分维度的分数与理由",
+  S5: "归因：重复出现的问题模式", S6: "报告：可直接截图进作品集的单文件"
+};
+
+function openStep(sid){
+  if(!RUN){ return; }
+  const s = LAST;
+  if(!s){ return; }
+  el("stepTitle").textContent = sid + " · " + (STEPS.find(x => x[0] === sid) || ["", ""])[1];
+  el("stepSub").textContent = STEP_DESC[sid] || "";
+  el("stepBody").innerHTML = stepBody(sid, s);
+  el("stepFoot").innerHTML = stepFoot(sid, s);
+  el("mask").classList.add("on");
+}
+
+function closeStep(){ el("mask").classList.remove("on"); }
+
+function empty(t){ return `<div class="emp">${esc(t)}</div>`; }
+
+function stepBody(sid, s){
+  if(sid === "S1"){
+    const p = s.plan;
+    if(!p) return empty("这一步还没产物。");
+    const dims = (p["评测维度"] || []).map(d => `<li>${esc(d)}</li>`).join("") || "<li>（空）</li>";
+    return `<div class="kv"><b>场景名</b><span>${esc(p["场景名"] || "—")}</span></div>
+      <div class="kv"><b>场景</b><span>${esc(p["场景"] || "")}</span></div>
+      <div class="kv"><b>目标用户</b><span>${esc(p["目标用户"] || "")}</span></div>
+      <div class="kv"><b>评测维度</b><div style="flex:1"><ol class="ol">${dims}</ol></div></div>
+      <div class="kv"><b>风险提示</b><span>${esc(p["风险提示"] || "")}</span></div>
+      ${warnBlock(s.warn_plan)}
+      <div class="hint">回看是只读的。要改就点下面的按钮退回卡点 1，那里每个字都能改。</div>`;
+  }
+  if(sid === "S2"){
+    if(!s.cases || !s.cases.length) return empty("这一步还没产物。");
+    return covBlock(s.coverage) + warnBlock(s.warn_cases) +
+      `<table><thead><tr><th style="width:44px">编号</th><th style="width:64px">类别</th>
+       <th style="width:26%">用户说</th><th>判据</th></tr></thead><tbody>` +
+      s.cases.map(c => `<tr><td class="tag">${esc(c.id)}</td>
+        <td><span class="tag">${esc(c["类别"] || "")}</span></td>
+        <td>${esc(c["用户话术"] || "")}</td><td>${esc(c["判据"] || "")}</td></tr>`).join("") +
+      `</tbody></table><div class="hint">回看是只读的。要改文字或删行，点下面的按钮退回卡点 2。</div>`;
+  }
+  if(sid === "S3"){
+    const rows = s.rows || [];
+    if(!rows.length) return empty("还没有采集结果。S3 跑起来之后这里会出现每个对象的原始回答。");
+    return `<table><thead><tr><th style="width:44px">用例</th><th style="width:22%">被测对象</th>
+      <th>回答（原文）</th></tr></thead><tbody>` +
+      rows.map(r => `<tr><td class="tag">${esc(r.case)}</td><td>${esc(r.object)}</td>
+        <td><div class="q"><div class="a">${esc((r.answer || "（空）").slice(0, 220))}</div></div></td></tr>`).join("") +
+      `</tbody></table>`;
+  }
+  if(sid === "S4"){
+    const sc = s.scores || [];
+    if(!sc.length) return empty("还没有判分结果。");
+    const objs = [...new Set(sc.map(x => x.object))];
+    return `<table><thead><tr><th style="width:44px">用例</th>` +
+      objs.map(o => `<th>${esc(o)}</th>`).join("") + `</tr></thead><tbody>` +
+      s.cases.map(c => `<tr><td class="tag">${esc(c.id)}</td>` + objs.map(o => {
+        const hit = sc.find(x => x.case === c.id && x.object === o);
+        if(!hit) return "<td>—</td>";
+        const col = hit["总分"] >= 5 ? "#0F6E56" : (hit["总分"] >= 3 ? "#9A6B12" : "#A32D2D");
+        return `<td><b style="color:${col}">${hit["总分"]}/6</b>
+          <div class="a" style="font-size:11.5px;color:#7A7770;margin-top:2px">${esc(hit["理由"] || "")}</div></td>`;
+      }).join("") + `</tr>`).join("") + `</tbody></table>`;
+  }
+  if(sid === "S5"){
+    const pats = (s.patterns && s.patterns["模式"]) || [];
+    if(!pats.length) return empty("还没有归因结果（或者没发现重复出现的问题模式）。");
+    return pats.map((p, i) => `<div class="pat2">
+        <div class="t">${i + 1}. ${esc(p["名称"] || "")}<span>${esc(String(p["出现次数"] || ""))} 次</span></div>
+        <div class="i">${esc(p["影响"] || "")}</div>
+        <div class="e">证据：${esc((p["证据"] || []).join("、"))}</div>
+        <div class="s">${esc(p["建议"] || "")}</div></div>`).join("");
+  }
+  if(sid === "S6"){
+    if(!s.has_report) return empty("报告还没生成。S3→S6 跑完之后这里会有一个单文件 HTML。");
+    const agg = s.agg || [];
+    return `<div class="kv"><b>综合分</b><div style="flex:1"><table style="margin:0">
+        <thead><tr><th>被测对象</th><th>平均分</th></tr></thead><tbody>` +
+      agg.map(a => `<tr><td>${esc(a.name)}</td><td><b>${a.avg.toFixed(1)}</b> / 6</td></tr>`).join("") +
+      `</tbody></table></div></div>
+      <div class="hint">报告是单文件、无依赖，可以直接发给别人或截图进作品集。</div>`;
+  }
+  return empty("没有这一步。");
+}
+
+function stepFoot(sid, s){
+  const st = s.status;
+  const stName = {new: "待启动", running: "执行中", awaiting_plan: "卡点 1",
+    awaiting_cases: "卡点 2", done: "已完成", error: "出错"}[st] || st;
+  let btn = "";
+  if(sid === "S1" && ["awaiting_cases", "running", "done", "error"].includes(st)){
+    btn = `<button class="back" onclick="rewindTo('plan')">← 退回卡点 1 重改方案</button>`;
+  } else if(sid === "S2" && ["running", "done", "error"].includes(st)){
+    btn = `<button class="back" onclick="rewindTo('cases')">← 退回卡点 2 重审用例</button>`;
+  } else if(sid === "S2" && st === "awaiting_cases"){
+    btn = `<button class="back" onclick="closeStep()">关闭，我就在卡点 2</button>`;
+  } else if(sid === "S1" && st === "awaiting_plan"){
+    btn = `<button class="back" onclick="closeStep()">关闭，我就在卡点 1</button>`;
+  }
+  if(sid === "S6" && s.has_report){
+    btn += `<button class="go" style="margin-left:auto" onclick="window.open('/report?run='+encodeURIComponent(RUN),'_blank')">打开完整报告</button>`;
+  }
+  return btn + `<span class="hint">当前状态：${stName}</span>`;
+}
+
+async function rewindTo(target){
+  const msg = target === "cases"
+    ? "退回卡点 2：\n• 保留这批判例\n• 删掉已采集的回答、判分、归因和报告\n• 改完再跑一次（会产生新的调用费用）\n\n继续吗？"
+    : "退回卡点 1：\n• 会连用例一起删掉\n• 改完方案要重新造题，已跑出的报告作废\n\n继续吗？";
+  if(!confirm(msg)) return;
+  closeStep();
+  const post = (p) => fetch(p, {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({run: RUN})});
+  if(target === "plan"){
+    if(LAST && LAST.status !== "awaiting_cases" && LAST.status !== "awaiting_plan"){
+      await post("/api/back_cases");     // 先退到卡点 2
+    }
+    await post("/api/back");             // 再退到卡点 1
+  } else {
+    await post("/api/back_cases");
+  }
+  GATE_KEY = "";
+  el("gateBox").innerHTML = "";
+  await poll();
+  if(!TIMER) TIMER = setInterval(poll, 900);
+}
+
+document.addEventListener("keydown", e => { if(e.key === "Escape") closeStep(); });
+
+function esc(t){ return String(t==null?"":t).replace(/[&<>"]/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m])); }
+
+drawFlow(null);
+
+const _p = new URLSearchParams(location.search);
+if(_p.get("run")){
+  RUN = _p.get("run");
+  const want = (_p.get("step") || "").toUpperCase();   // ?step=S2 直接打开那一步的回看
+  poll().then(() => { if(want && LAST) openStep(want); });
+  TIMER = setInterval(poll, 900);
+}
+</script>
+</body>
+</html>
