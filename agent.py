@@ -605,6 +605,10 @@ def apply_plan(run, plan):
     cur["评测维度"] = [str(x).strip() for x in (cur.get("评测维度") or []) if str(x).strip()][:3]
     run.state["plan"] = cur
     run.state["warn_plan"] = boundary_warnings(cur["评测维度"])
+    # scene 在 S1 结束时写入，S3 采集提示词直接拿它当场景上下文。
+    # 不同步的话，人改了场景名、采集时念的还是旧场景——又一个「改完不生效」。
+    if cur.get("场景名") or cur.get("场景"):
+        run.state["scene"] = cur.get("场景名") or cur.get("场景", "")
     run.write_json("s1_plan.json", cur)
     run.save()
     return cur
