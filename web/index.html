@@ -121,6 +121,44 @@ td[contenteditable]:focus{background:#FFFCF0;box-shadow:inset 0 0 0 1px #E3D9C2}
 .q .a{font-size:12px;color:var(--ink2);line-height:1.55}
 .q .r{font-size:11px;color:var(--ink3);margin-top:3px}
 
+/* 进度条：total=0 时走条纹动画，避免显示成停在 0% 的死条 */
+.prog{margin-top:14px}
+.prog:empty{display:none}
+.pt{font-size:12.5px;color:var(--ink2);margin-bottom:6px}
+.pt b{font-weight:600;color:var(--teal)}
+.pt .lbl{color:var(--ink3);font-size:11.5px;margin-left:8px}
+.pbar{height:6px;border-radius:4px;background:#EDEAE3;overflow:hidden}
+.pbar i{display:block;height:100%;background:var(--teal);border-radius:4px;transition:width .35s ease}
+.pbar.ind i{width:100%;animation:pslide 1.1s linear infinite;
+background:repeating-linear-gradient(90deg,var(--teal) 0 22px,rgba(15,110,86,.22) 22px 44px);
+background-size:44px 100%}
+@keyframes pslide{from{background-position:0 0}to{background-position:44px 0}}
+
+/* 被测对象 */
+.objs{display:flex;flex-direction:column;gap:7px}
+.obj{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:9px;
+padding:8px 12px;background:#FDFCFA;transition:.15s}
+.obj:hover{border-color:#CFC9BC}
+.obj.on{border-color:var(--teal);background:var(--teal-bg)}
+.obj input{width:15px;height:15px;accent-color:var(--teal);cursor:pointer;flex:none;margin:0}
+.obj .nm{font-size:13px;font-weight:500}
+.obj .md{font-size:11.5px;color:var(--ink2);opacity:.72;font-family:ui-monospace,Menlo,Consolas,monospace;margin-left:2px}
+.obj:not(.on) .nm{color:var(--ink3)}
+.obj:not(.on) .md{opacity:.5}
+.obj .off{font-size:10.5px;color:var(--ink3);background:#F1EEE8;padding:1px 7px;border-radius:10px;margin-left:auto;flex:none}
+.addbox{display:none;margin-top:11px;padding:13px 14px;border:1px dashed var(--line);border-radius:9px;background:#FDFCFA}
+.addbox.on{display:block}
+.addbox .f{margin-bottom:9px}
+.addbox label{display:block;font-size:11.5px;color:var(--ink3);margin-bottom:4px}
+.addbox input[type=text]{width:100%;border:1px solid var(--line);border-radius:7px;padding:7px 10px;
+font-family:inherit;font-size:13px;background:#fff;color:var(--ink)}
+.addbox textarea{min-height:54px;font-size:12.5px;margin-top:2px}
+.addbox .acts{display:flex;gap:8px;align-items:center;margin-top:2px}
+.addbox .acts .go{margin-left:0;padding:7px 16px}
+.addbox .msg{font-size:11.5px;color:var(--ink3)}
+.addbox .msg.ok{color:var(--teal)}
+.addbox .msg.bad{color:var(--red)}
+
 </style>
 </head>
 <body>
@@ -155,8 +193,34 @@ td[contenteditable]:focus{background:#FFFCF0;box-shadow:inset 0 0 0 1px #E3D9C2}
 </div>
 
 <div class="card">
+  <h2>被测对象（竞品）</h2>
+  <div class="objs" id="objs"></div>
+  <div class="row" style="margin-top:11px">
+    <button class="ghost" onclick="toggleAdd()">+ 加一个竞品</button>
+    <span class="hint" style="margin:0">勾上的才跑，不勾的不花钱</span>
+  </div>
+  <div class="addbox" id="addbox">
+    <div class="f"><label>显示名称</label>
+      <input type="text" id="oName" placeholder="例：豆包 Seed 2.1 · 原始配置"></div>
+    <div class="f"><label>模型 ID（从方舟控制台复制完整 ID，别手打）</label>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="oModel" placeholder="例：doubao-seed-2-1-lite-260915" style="flex:1">
+        <button class="ghost" style="flex:none" onclick="probe()">验证</button>
+      </div></div>
+    <div class="f"><label>系统提示词 · 能力声明（留空则复用第一个对象的，保证变量可控）</label>
+      <textarea id="oSys" placeholder="留空即可"></textarea></div>
+    <div class="acts">
+      <button class="go" onclick="addObj()">加入</button>
+      <button class="ghost" onclick="toggleAdd(false)">取消</button>
+      <span class="msg" id="oMsg"></span>
+    </div>
+  </div>
+</div>
+
+<div class="card">
   <h2>执行流程</h2>
   <div class="flow" id="flow"></div>
+  <div class="prog" id="prog"></div>
 </div>
 
 <div id="gateBox"></div>
@@ -218,6 +282,102 @@ function drawFlow(steps){
       <div class="sid">${sid}</div><div class="nm">${nm}</div>
       <div class="ms">${ms}</div>${RUN ? '<div class="see">查看</div>' : ""}</div>`;
   }).join("");
+}
+
+function drawProg(s){
+  const p = s.progress;
+  if(!p){ el("prog").innerHTML = ""; return; }
+  const total = p.total || 0;
+  const pct = total > 0 ? Math.min(100, Math.round(p.done / total * 100)) : 0;
+  const ind = total > 0 ? "" : " ind";          // total=0 → 不确定进度
+  const head = total > 0
+    ? `<b>${esc(p.step)}</b> ${p.done}/${total} · ${pct}%`
+    : `<b>${esc(p.step)}</b> 执行中`;
+  const lbl = p.label ? `<span class="lbl">${esc(p.label)}</span>` : "";
+  el("prog").innerHTML = `<div class="pt">${head}${lbl}</div>
+    <div class="pbar${ind}"><i style="width:${total > 0 ? pct : 100}%"></i></div>`;
+}
+
+let OBJS = [];
+
+async function loadObjs(){
+  try{
+    const r = await fetch("/api/objects");
+    const d = await r.json();
+    OBJS = d.objects || [];
+  }catch(e){ OBJS = []; }
+  drawObjs();
+}
+
+function drawObjs(){
+  if(!OBJS.length){ el("objs").innerHTML = `<div class="hint" style="margin:0">读不到 config.json 里的对象</div>`; return; }
+  el("objs").innerHTML = OBJS.map((o,i)=>`
+    <div class="obj${o.enabled?" on":""}">
+      <input type="checkbox" ${o.enabled?"checked":""} onchange="toggleObj(${i}, this.checked)">
+      <span class="nm">${esc(o.name)}</span>
+      <span class="md">${esc(o.model)}</span>
+      ${o.enabled?"":'<span class="off">未启用</span>'}
+    </div>`).join("");
+}
+
+async function toggleObj(i, on){
+  const before = OBJS[i].enabled;
+  OBJS[i].enabled = on;
+  if(!OBJS.some(o=>o.enabled)){      // 一个都不勾会跑不起来，直接退回
+    OBJS[i].enabled = before;
+    drawObjs();
+    alert("至少要留一个被测对象，否则没东西可跑");
+    return;
+  }
+  drawObjs();
+  const r = await fetch("/api/save_objects", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({objects: OBJS})});
+  const d = await r.json();
+  if(d.error){ alert(d.error); loadObjs(); }
+}
+
+function toggleAdd(force){
+  const b = el("addbox");
+  const on = (force === undefined) ? !b.classList.contains("on") : force;
+  b.classList.toggle("on", on);
+  if(on) el("oName").focus();
+}
+
+function setMsg(t, cls){
+  const m = el("oMsg");
+  m.textContent = t;
+  m.className = "msg" + (cls ? " " + cls : "");
+}
+
+async function probe(){
+  const md = (el("oModel").value || "").trim();
+  if(!md){ setMsg("先填模型 ID", "bad"); return; }
+  setMsg("正在调用…");
+  try{
+    const r = await fetch("/api/probe", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({model: md})});
+    const d = await r.json();
+    if(d.ok) setMsg("能调通，可以加", "ok");
+    else setMsg("调不通：" + (d.error || "") , "bad");
+  }catch(e){ setMsg("请求失败：" + e.message, "bad"); }
+}
+
+async function addObj(){
+  const nm = (el("oName").value || "").trim();
+  const md = (el("oModel").value || "").trim();
+  if(!nm || !md){ setMsg("名称和模型 ID 都要填", "bad"); return; }
+  if(OBJS.some(o=>o.name === nm)){ setMsg("这个名字已经存在了", "bad"); return; }
+  let sys = (el("oSys").value || "").trim();
+  if(!sys && OBJS.length) sys = OBJS[0].system || "";   // 默认沿用同一句能力声明
+  OBJS.push({name:nm, model:md, system:sys, enabled:true});
+  const r = await fetch("/api/save_objects", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({objects: OBJS})});
+  const d = await r.json();
+  if(d.error){ setMsg(d.error, "bad"); return; }
+  await loadObjs();
+  el("oName").value = ""; el("oModel").value = ""; el("oSys").value = "";
+  setMsg("");
+  toggleAdd(false);
 }
 
 function setBadge(t){
@@ -294,6 +454,7 @@ async function poll(){
 function render(s){
   LAST = s;
   drawFlow(s.steps);
+  drawProg(s);
   const map = {new:"待启动", running:"执行中", awaiting_plan:"卡点 1 · 待确认方案",
     awaiting_cases:"卡点 2 · 待确认用例", done:"已完成", error:"出错"};
   setBadge(map[s.status] || s.status);
@@ -522,6 +683,7 @@ document.addEventListener("keydown", e => { if(e.key === "Escape") closeStep(); 
 function esc(t){ return String(t==null?"":t).replace(/[&<>"]/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m])); }
 
 drawFlow(null);
+loadObjs();          // 被测对象来自 config.json，这里读一次渲染成可勾选列表
 
 const _p = new URLSearchParams(location.search);
 if(_p.get("run")){

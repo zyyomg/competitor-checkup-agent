@@ -107,6 +107,16 @@ class H(BaseHTTPRequestHandler):
         if u.path in ("/", "/index.html"):
             with open(os.path.join(WEB, "index.html"), "rb") as f:
                 return self._send(200, f.read(), "text/html; charset=utf-8")
+        if u.path == "/api/objects":
+            try:
+                with open(agent.CFG_FILE, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+            except Exception as e:  # noqa: BLE001
+                return self._json({"error": "读不到 config.json：%s" % str(e)[:120]}, 500)
+            objs = [{"name": o.get("name", ""), "model": o.get("model", ""),
+                     "enabled": bool(o.get("enabled", True)),
+                     "system": o.get("system", "")} for o in cfg.get("objects", [])]
+            return self._json({"objects": objs})
         if u.path == "/api/state":
             rid = (q.get("run") or [""])[0]
             if not rid:
@@ -131,6 +141,47 @@ class H(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(n) or b"{}")
         except Exception:
             body = {}
+        if u.path == "/api/save_objects":
+            items = body.get("objects")
+            if not isinstance(items, list) or not items:
+                return self._json({"error": "被测对象不能为空"}, 400)
+            try:
+                with open(agent.CFG_FILE, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+            except Exception as e:  # noqa: BLE001
+                return self._json({"error": "读不到 config.json：%s" % str(e)[:120]}, 500)
+            old = {o.get("name"): o for o in cfg.get("objects", [])}
+            out = []
+            for it in items:
+                nm = str(it.get("name") or "").strip()
+                md = str(it.get("model") or "").strip()
+                if not nm or not md:
+                    continue
+                base = old.get(nm) or {}
+                # 保留 base 里的其他字段（比如配置里的 _提示 注释），只覆盖三个可编辑项
+                out.append({**base, "name": nm, "model": md,
+                            "system": str(it.get("system", base.get("system", "")) or ""),
+                            "enabled": bool(it.get("enabled", True))})
+            if not out:
+                return self._json({"error": "每个对象都要有名称和模型 ID"}, 400)
+            if not any(o["enabled"] for o in out):
+                return self._json({"error": "至少要勾选一个对象"}, 400)
+            cfg["objects"] = out
+            with open(agent.CFG_FILE, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=2)
+                f.write("\n")          # 和手写的 config.json 保持同一结尾，diff 才不会多出一行
+            return self._json({"ok": True, "n": len(out),
+                               "enabled": sum(1 for o in out if o["enabled"])})
+        if u.path == "/api/probe":
+            md = str(body.get("model") or "").strip()
+            if not md:
+                return self._json({"ok": False, "error": "先填模型 ID"}, 400)
+            try:
+                agent.call_chat(md, [{"role": "user", "content": "回复ok"}],
+                                temperature=0, retries=0)
+                return self._json({"ok": True})
+            except Exception as e:  # noqa: BLE001
+                return self._json({"ok": False, "error": str(e)[:200]})
         if u.path == "/api/start":
             brief = (body.get("brief") or "").strip()
             if not brief:

@@ -67,6 +67,18 @@ def log(msg):
     print("[%s] %s" % (time.strftime("%H:%M:%S"), msg), flush=True)
 
 
+def set_progress(run, step, done, total, label=""):
+    """把「跑到第几条」写进 state，让界面能画出 n/total。
+
+    S3、S4 是逐条调用的，十几条要跑几分钟。没有这个字段，界面上只有一个
+    转圈的「运行中」，人分不清是在跑还是卡死了，最后只能去翻终端。
+    前端拿不到 total 时按不确定进度（条纹动画）渲染，不会显示成 0%。
+    """
+    run.state["progress"] = {"step": step, "done": int(done),
+                             "total": int(total), "label": label}
+    run.save()
+
+
 def load_text(name):
     p = os.path.join(PROMPTS, name)
     with open(p, "r", encoding="utf-8") as f:
@@ -192,6 +204,11 @@ class Run:
     def begin(self, sid):
         self.state["steps"][sid]["status"] = "running"
         self.state["status"] = "running"
+        # 默认给「不确定进度」：S1/S2/S5 都是一次调用，没有 n/total。
+        # 前端见到 total=0 就画条纹动画，而不是一个停在 0% 的死条——
+        # 假的百分比比没有百分比更让人焦虑。
+        self.state["progress"] = {"step": sid, "done": 0, "total": 0,
+                                  "label": self.state["steps"][sid]["name"]}
         self.save()
         self._t0 = time.time()
         log("%s %s ..." % (sid, self.state["steps"][sid]["name"]))
@@ -201,6 +218,7 @@ class Run:
         st["status"] = "done"
         st["ms"] = int((time.time() - getattr(self, "_t0", time.time())) * 1000)
         st["note"] = note
+        self.state.pop("progress", None)   # 否则跑完了界面还挂着「12/12」
         self.save()
         log("%s 完成 %dms %s" % (sid, st["ms"], note))
 
@@ -208,6 +226,7 @@ class Run:
         self.state["steps"][sid]["status"] = "error"
         self.state["steps"][sid]["note"] = str(err)[:200]
         self.state["status"] = "error"
+        self.state.pop("progress", None)
         self.save()
 
 
@@ -384,6 +403,10 @@ def s2_cases(run, model, plan):
 def s3_collect(run, objects, cases):
     run.begin("S3")
     rows, dead = [], []
+    live = [o for o in objects if not o.get("_dead")]
+    total = len(live) * len(cases)
+    n = 0
+    set_progress(run, "S3", 0, total, "准备采集")
     for obj in objects:
         if obj.get("_dead"):
             dead.append(obj["name"])
@@ -403,6 +426,8 @@ def s3_collect(run, objects, cases):
                 log("    采集失败 %s / %s：%s" % (obj["name"], c["id"], str(e)[:60]))
             rows.append({"object": obj["name"], "case": c["id"], "prompt": c["用户话术"],
                          "answer": txt, "tokens": usage.get("total_tokens", 0)})
+            n += 1
+            set_progress(run, "S3", n, total, "%s · %s" % (obj["name"], c["id"]))
     run.write_json("s3_raw.json", rows)
     run.end("S3", "%d 条回答%s" % (len(rows), "，跳过 " + "/".join(dead) if dead else ""))
     return rows
@@ -413,6 +438,7 @@ def s4_score(run, model, cases, rows):
     by_id = {c["id"]: c for c in cases}
     out = []
     tpl = load_text("4_判分.md")
+    set_progress(run, "S4", 0, len(rows), "准备判分")
     for r in rows:
         if run.state.get("abort"):     # 判分是大头，一条要等 1-2 秒，必须能中断
             log("    收到退回指令，停止判分")
@@ -428,6 +454,7 @@ def s4_score(run, model, cases, rows):
         except Exception as e:  # noqa: BLE001
             d = {"正确性": 0, "合规性": 0, "简洁性": 0, "理由": "判分失败：%s" % str(e)[:40]}
         out.append({**r, **d, "总分": d["正确性"] + d["合规性"] + d["简洁性"]})
+        set_progress(run, "S4", len(out), len(rows), "%s · %s" % (r["object"], r["case"]))
     run.write_json("s4_scores.json", out)
     run.end("S4", "%d 条已判" % len(out))
     return out
