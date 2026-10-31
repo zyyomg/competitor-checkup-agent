@@ -24,6 +24,7 @@
 """
 
 import argparse
+import itertools
 import json
 import os
 import re
@@ -460,6 +461,132 @@ def s4_score(run, model, cases, rows):
     return out
 
 
+def enrich_patterns(patterns, scores):
+    """把「次数」从模型手里收回来，改成用证据 + 判分现算。
+
+    这个字段模型给不准：家居那轮同一条证据只有 5 个编号，它写「8 次」，
+    既不是用例数也不是记录数。面试官顺着「8 次」问「哪 8 条」当场就问穿。
+    现在只信 s4 里的分数：用例数 = 合法证据条数，记录数 = 这些用例下未达标的格子。
+    顺手剔掉编造的 id —— 模型偶尔会引一个不存在的 C13。
+    """
+    ids = {s["case"] for s in scores}
+    out = []
+    for p in patterns.get("模式", []):
+        ev, seen = [], set()
+        for x in p.get("证据", []):
+            x = str(x).strip()
+            if x in ids and x not in seen:
+                seen.add(x)
+                ev.append(x)
+        if not ev:                       # 证据全是编的，这条模式不留
+            continue
+        cells = [s for s in scores if s["case"] in seen]
+        q = dict(p)
+        q["证据"] = ev
+        q["用例数"] = len(ev)
+        q["格数"] = len(cells)
+        q["记录数"] = sum(1 for s in cells if s["总分"] <= 4)
+        q.pop("出现次数", None)
+        out.append(q)
+    patterns["模式"] = out
+    return patterns
+
+
+def text_overlap(a, b):
+    """两句话术的最长公共子串 / 短句长度。
+
+    用来认「同一件事换个说法」。「把门锁打开」和「把门锁打开，我忘带钥匙了」
+    公共部分是前七个字，占比 1.0 —— 这正是要抓的形状：动作一样，理由不同。
+    """
+    a = re.sub(r"[，。！？、,.!?\s]", "", a or "")
+    b = re.sub(r"[，。！？、,.!?\s]", "", b or "")
+    if not a or not b:
+        return 0.0
+    prev = [0] * (len(b) + 1)
+    best = 0
+    for i in range(1, len(a) + 1):
+        cur = [0] * (len(b) + 1)
+        for j in range(1, len(b) + 1):
+            if a[i - 1] == b[j - 1]:
+                cur[j] = prev[j - 1] + 1
+                if cur[j] > best:
+                    best = cur[j]
+        prev = cur
+    return best / min(len(a), len(b))
+
+
+def gap_note(gap):
+    return ("两句话问的是同一件事，只差几个字，分数却差了 %d 分。"
+            "差别不在能力，在措辞——它认的是句子里的字，不是这件事本身。" % gap)
+
+
+def slim_score(s):
+    """只留渲染要用的三个字段。整条记录塞进 s5_patterns.json 会把回答和判分理由
+    也写进去，文件白白胖一圈，还容易被误读成「这是原始数据」。"""
+    return {"case": s["case"], "prompt": s["prompt"], "总分": s["总分"]}
+
+
+def contrast_by_text(scores, cases):
+    """代码兜底找反例：同一对象下分差 ≥3、两句话术高度重合、且同属一个类别的两条用例。
+
+    为什么不让模型挑：这轮 12 条要配 66 对，模型扫不完，经常直接给 null。
+    但这两条其实是它自己在低分记录里见过的——只是没意识到可以并排看。
+    所以候选对交给代码枚举。
+
+    「同类别」这个约束不能省：信息不足和信息完整本来就该得到不同的处理，
+    跨类别拿来对比会把「题目要求不同」说成「模型不稳定」，那是冤枉人。
+    """
+    cat = {c["id"]: c.get("类别") for c in cases}
+    prompts = {}
+    for s in scores:
+        prompts.setdefault(s["case"], s["prompt"])
+    best = None
+    for a, b in itertools.combinations(sorted(prompts), 2):
+        if cat.get(a) and cat.get(b) and cat[a] != cat[b]:
+            continue
+        sim = text_overlap(prompts[a], prompts[b])
+        if sim < 0.5:
+            continue
+        for nm in {s["object"] for s in scores}:
+            x = next((s for s in scores if s["case"] == a and s["object"] == nm), None)
+            y = next((s for s in scores if s["case"] == b and s["object"] == nm), None)
+            if not x or not y:
+                continue
+            gap = abs(x["总分"] - y["总分"])
+            if gap < 3:
+                continue
+            hi, lo = (x, y) if x["总分"] >= y["总分"] else (y, x)
+            key = (gap, sim)
+            if best is None or key > best[0]:
+                best = (key, {"对象": nm, "高": slim_score(hi), "低": slim_score(lo),
+                              "说明": gap_note(gap)})
+    return best[1] if best else None
+
+
+def pick_contrast(patterns, scores, cases):
+    """校验模型挑的「反例」：两条用例真实存在、在同一对象下都有分、分差 ≥3。
+
+    分差、分数一律用 s4 的真值覆写。模型只负责「哪两条值得放一起看」和一句话说明
+    ——这是它擅长的部分；数字是它不擅长的部分，所以数字不给它写。
+    模型没挑出来（很常见）就走代码兜底，兜底也没找到就不画这块。
+    """
+    c = patterns.get("反例")
+    if isinstance(c, dict) and not c.get("高"):
+        pair = c.get("对比") or []
+        nm = c.get("对象")
+        if len(pair) >= 2 and nm:
+            x = next((s for s in scores if s["case"] == pair[0] and s["object"] == nm), None)
+            y = next((s for s in scores if s["case"] == pair[1] and s["object"] == nm), None)
+            if x and y:
+                hi, lo = (x, y) if x["总分"] >= y["总分"] else (y, x)
+                gap = hi["总分"] - lo["总分"]
+                if gap >= 3:
+                    note = str(c.get("说明") or "").strip()
+                    return {"对象": nm, "高": slim_score(hi), "低": slim_score(lo),
+                            "说明": note[:120] or gap_note(gap)}
+    return contrast_by_text(scores, cases)
+
+
 def s5_attribute(run, model, scores):
     run.begin("S5")
     bad = [s for s in scores if s["总分"] <= 4]
@@ -472,15 +599,21 @@ def s5_attribute(run, model, scores):
         lines.append("- [%s] 对象=%s 总分=%d 用户说：%s / 回答：%s / 判据：%s"
                      % (s["case"], s["object"], s["总分"], s["prompt"],
                         (s["answer"] or "（空）")[:60], s["理由"]))
-    d = ask_json(fill(load_text("5_归因.md"), records="\n".join(lines)),
+    # 分数矩阵：只看低分记录，模型永远发现不了「同一句话换个说法就从 6 分掉到 2 分」
+    # ——那条高分记录根本不在低分列表里。归因要看得到全表。
+    matrix, seen = [], set()
+    for s in scores:
+        if s["case"] in seen:
+            continue
+        seen.add(s["case"])
+        cells = " ".join("%s=%d" % (o["object"], o["总分"])
+                         for o in scores if o["case"] == s["case"])
+        matrix.append("%s 用户=%s | %s" % (s["case"], s["prompt"], cells))
+    d = ask_json(fill(load_text("5_归因.md"),
+                      records="\n".join(lines), matrix="\n".join(matrix)),
                  ["模式"], model, retries=2)
-    for p in d.get("模式", []):                     # 两个对象会出现同一个 case id，去重
-        seen, uniq = set(), []
-        for x in p.get("证据", []):
-            if x not in seen:
-                seen.add(x)
-                uniq.append(x)
-        p["证据"] = uniq
+    d = enrich_patterns(d, scores)
+    d["反例"] = pick_contrast(d, scores, run.read_json("s2_cases.json"))
     run.write_json("s5_patterns.json", d)
     run.end("S5", "%d 个模式" % len(d.get("模式", [])))
     return d
@@ -488,6 +621,9 @@ def s5_attribute(run, model, scores):
 
 def s6_report(run, plan, objects, cases, scores, patterns):
     run.begin("S6")
+    # 老 run 的 s5_patterns.json 里存的是模型当年编的次数，重出报告时在这里就地纠正，
+    # 保证「--report-only 出来的报告」和「重新跑一遍出来的报告」数字一致。
+    patterns = enrich_patterns(patterns, scores)
     names = [o["name"] for o in objects if not o.get("_dead")]
     agg = {}
     for nm in names:
@@ -523,12 +659,29 @@ def render_html(run, plan, agg, cases, scores, patterns, best):
     pat_html = ""
     for i, p in enumerate(patterns.get("模式", []), 1):
         ev = "、".join(str(x) for x in p.get("证据", []))
-        pat_html += ("<div class='pat'><div class='pt'>%d. %s<span class='cnt'>%s 次</span></div>"
+        cnt = "%d 条用例 · %d/%d 条记录未达标" % (
+            p.get("用例数", len(p.get("证据", []))),
+            p.get("记录数", 0), p.get("格数", 0))
+        pat_html += ("<div class='pat'><div class='pt'>%d. %s<span class='cnt'>%s</span></div>"
                      "<div class='pi'>%s</div>"
                      "<div class='pe'>证据：<b>%s</b></div>"
                      "<div class='ps'>建议：%s</div></div>"
-                     % (i, p.get("名称", ""), p.get("出现次数", 0), p.get("影响", ""), ev,
+                     % (i, p.get("名称", ""), cnt, p.get("影响", ""), ev,
                         p.get("建议", "")))
+
+    # 反例在 S5 已经校验过一遍并落盘，重出报告时直接用，不再重算（重算可能选出另一对，
+    # 同一份数据两个结果，说不清）
+    cx = patterns.get("反例")
+    if not (isinstance(cx, dict) and isinstance(cx.get("高"), dict) and cx["高"].get("case")):
+        cx = pick_contrast(patterns, scores, cases)
+    cx_html = ""
+    if cx:
+        cx_html = ("<div class='cx'><div class='ct'>同一个操作，换个说法就换了个结果</div>"
+                   "<p>%s 下：<b>%s</b>「%s」得 <b>%d/6</b>；"
+                   "<b>%s</b>「%s」只得 <b>%d/6</b>。%s</p></div>"
+                   % (cx["对象"], cx["高"]["case"], cx["高"]["prompt"], cx["高"]["总分"],
+                      cx["低"]["case"], cx["低"]["prompt"], cx["低"]["总分"],
+                      cx["说明"]))
 
     detail = ""
     for c in cases:
@@ -573,12 +726,16 @@ margin-left:8px;background:#F3F1EA;padding:1px 7px;border-radius:9px}
 .pi{font-size:13px;color:#4A4741;margin-top:5px}
 .pe{font-size:12px;color:#7A7770;margin-top:6px}.pe b{color:#A32D2D;font-family:ui-monospace,monospace}
 .ps{font-size:12.5px;margin-top:6px;padding:7px 10px;background:#F0F7F3;border-radius:6px;color:#0F6E56}
+.cx{margin:14px 0 4px;padding:12px 14px;background:#FCF6EC;border-left:3px solid #C08A2E;border-radius:0 6px 6px 0}
+.cx .ct{font-size:11px;letter-spacing:.1em;color:#8A6A22;font-weight:600}
+.cx p{margin:5px 0 0;font-size:13px;color:#4A4741}
+.cx b{color:#1F1D19}
 .foot{margin-top:36px;padding-top:14px;border-top:1px solid #E5E1D8;font-size:11.5px;color:#9A968E}
 </style></head><body><div class="wrap">
 <div class="eyebrow">AI 功能体检报告</div>
 <h1>__SCENE__</h1>
 <div class="meta">需求原文：__BRIEF__ ｜ 场景：__SCENE2__ ｜ 用例 __NC__ 条 ｜ 被测对象 __NO__ 个 ｜ __DATE__ ｜ 编号 __RID__</div>
-<p class="lead">结论：<b>__BEST__</b> 综合得分最高（__BESTAVG__ / 6）。共发现 <b>__NP__</b> 个可归因的问题模式。</p>
+<p class="lead">结论：<b>__BEST__</b> 综合得分最高（__BESTAVG__ / 6）。共发现 <b>__NP__</b> 个可归因的问题模式。</p>__CX__
 <h2>一、总览</h2>
 <table class="ov"><thead><tr><th>被测对象</th><th>综合分</th><th>正确性</th><th>合规性</th><th>简洁性</th><th>低分率</th></tr></thead><tbody>__ROWS__</tbody></table>
 <h2>二、问题模式（按严重度排序）</h2>__PATS__
@@ -594,6 +751,7 @@ margin-left:8px;background:#F3F1EA;padding:1px 7px;border-radius:9px}
         "__RID__": run.id, "__BEST__": best,
         "__BESTAVG__": "%.1f" % (agg[best]["avg"] if agg else 0),
         "__NP__": len(patterns.get("模式", [])), "__ROWS__": rows,
+        "__CX__": cx_html,
         "__PATS__": pat_html or "<p style='font-size:13px'>未发现明显模式。</p>",
         "__HEAD__": head, "__DETAIL__": detail,
     }.items():
@@ -767,7 +925,21 @@ def main():
     ap.add_argument("--run", help="继续某一轮")
     ap.add_argument("--approve", action="store_true", help="人工审完，继续")
     ap.add_argument("--report-only", action="store_true", help="不重跑，只用已存的中间产物重出报告")
+    ap.add_argument("--rerun-s5", action="store_true", help="只重跑归因这一步（调 1 次模型），然后重出报告")
     a = ap.parse_args()
+
+    if a.run and a.rerun_s5:
+        run = Run.load(a.run)
+        cfg, objects = load_config()
+        model = cfg.get("judge_model") or objects[0]["model"]
+        scores = run.read_json("s4_scores.json")
+        patterns = s5_attribute(run, model, scores)
+        log("归因已更新：反例=%s" % ("有" if patterns.get("反例") else "无"))
+        s6_report(run, run.state.get("plan") or run.read_json("s1_plan.json"),
+                  [o for o in objects if not o.get("_dead")],
+                  run.read_json("s2_cases.json"), scores, patterns)
+        log("已重出：%s" % run.path("report.html"))
+        return
 
     if a.run and a.report_only:
         run = Run.load(a.run)
