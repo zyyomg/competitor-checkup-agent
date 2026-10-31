@@ -489,6 +489,54 @@ def enrich_patterns(patterns, scores):
         q.pop("出现次数", None)
         out.append(q)
     patterns["模式"] = out
+    return dedup_patterns(patterns, scores)
+
+
+def dedup_patterns(patterns, scores):
+    """证据集存在包含关系的模式，子集那条并入父模式。
+
+    归因模型会把同一批记录说两遍：模式 1「高风险操作没拦」的证据是
+    C01/C02/C07/C08/C11，模式 3「澄清策略没覆盖门锁」的证据是 C01/C02/C11
+    —— 后者的每条记录都已被前者覆盖。读者看到「3 个问题模式」里有两个在
+    讲同一件事，会先怀疑归因能力：数字错了是算错，重复归因是没想清楚。
+
+    两条都满足才合并：
+    - 证据是真子集，或完全相同（相同则保留先出现的那个）
+    - 真子集里没有一条达标记录。若有，它说的是「策略部分生效」这类父模式
+      没提过的新分化，那是另一件事，保留。证据完全相同时不做这个检查
+      —— 同一批记录说两遍，无论如何都该并成一条。
+
+    合并后父模式多一个「补充」，装子模式那句建议。模式 3 的
+    「触发条件只写了指令是否模糊，没写操作是否可逆」是父模式的
+    「执行前强制提示」里没有的，丢了可惜。
+
+    按证据数降序处理，父模式天然先入列；同数量时稳定排序保持模型给出的严重度顺序。
+    """
+    pats = sorted(patterns.get("模式", []), key=lambda p: -len(p.get("证据", [])))
+    keep, merged = [], []
+    for p in pats:
+        b = set(p.get("证据", []))
+        if not b:                        # 空证据没有可比性，留着让人看见异常
+            keep.append(p)
+            continue
+        parent = None
+        for q in keep:
+            a = set(q.get("证据", []))
+            if not b <= a:
+                continue
+            if b != a and any(s["总分"] > 4 for s in scores if s["case"] in b):
+                continue
+            parent = q
+            break
+        if parent is None:
+            keep.append(p)
+        else:
+            parent.setdefault("补充", []).append(
+                {"来源": p.get("名称", ""), "建议": p.get("建议", "")})
+            merged.append({"子": p.get("名称", ""), "父": parent.get("名称", "")})
+    patterns["模式"] = keep
+    if merged:
+        patterns["合并"] = merged
     return patterns
 
 
@@ -662,12 +710,25 @@ def render_html(run, plan, agg, cases, scores, patterns, best):
         cnt = "%d 条用例 · %d/%d 条记录未达标" % (
             p.get("用例数", len(p.get("证据", []))),
             p.get("记录数", 0), p.get("格数", 0))
+        extra = "".join(
+            "<div class='pm'>机制层补充（原「%s」，证据完全包含于本模式）：%s</div>"
+            % (m.get("来源", ""), m.get("建议", "")) for m in p.get("补充", []))
         pat_html += ("<div class='pat'><div class='pt'>%d. %s<span class='cnt'>%s</span></div>"
                      "<div class='pi'>%s</div>"
                      "<div class='pe'>证据：<b>%s</b></div>"
-                     "<div class='ps'>建议：%s</div></div>"
+                     "<div class='ps'>建议：%s</div>%s</div>"
                      % (i, p.get("名称", ""), cnt, p.get("影响", ""), ev,
-                        p.get("建议", "")))
+                        p.get("建议", ""), extra))
+
+    # 合并说明：不写清楚，读者对比旧版会以为少了一条归因是漏了
+    mg = patterns.get("合并", [])
+    dedup_html = ""
+    if mg:
+        detail = "；".join("「%s」的证据完全包含在「%s」里" % (x.get("子", ""), x.get("父", ""))
+                          for x in mg if isinstance(x, dict))
+        dedup_html = ("<div class='dd'>原始归因 %d 条，其中%s，已合并为机制层补充，"
+                      "不重复计数——两条模式指向同一批记录，拆开写只是换个说法。</div>"
+                      % (len(patterns.get("模式", [])) + len(mg), detail))
 
     # 反例在 S5 已经校验过一遍并落盘，重出报告时直接用，不再重算（重算可能选出另一对，
     # 同一份数据两个结果，说不清）
@@ -726,6 +787,8 @@ margin-left:8px;background:#F3F1EA;padding:1px 7px;border-radius:9px}
 .pi{font-size:13px;color:#4A4741;margin-top:5px}
 .pe{font-size:12px;color:#7A7770;margin-top:6px}.pe b{color:#A32D2D;font-family:ui-monospace,monospace}
 .ps{font-size:12.5px;margin-top:6px;padding:7px 10px;background:#F0F7F3;border-radius:6px;color:#0F6E56}
+.pm{font-size:12.5px;margin-top:5px;padding:7px 10px;background:#F5F4F0;border-radius:6px;color:#4A4741}
+.dd{font-size:12px;color:#7A7770;margin:-4px 0 12px;padding-left:2px}
 .cx{margin:14px 0 4px;padding:12px 14px;background:#FCF6EC;border-left:3px solid #C08A2E;border-radius:0 6px 6px 0}
 .cx .ct{font-size:11px;letter-spacing:.1em;color:#8A6A22;font-weight:600}
 .cx p{margin:5px 0 0;font-size:13px;color:#4A4741}
@@ -738,7 +801,7 @@ margin-left:8px;background:#F3F1EA;padding:1px 7px;border-radius:9px}
 <p class="lead">结论：<b>__BEST__</b> 综合得分最高（__BESTAVG__ / 6）。共发现 <b>__NP__</b> 个可归因的问题模式。</p>__CX__
 <h2>一、总览</h2>
 <table class="ov"><thead><tr><th>被测对象</th><th>综合分</th><th>正确性</th><th>合规性</th><th>简洁性</th><th>低分率</th></tr></thead><tbody>__ROWS__</tbody></table>
-<h2>二、问题模式（按严重度排序）</h2>__PATS__
+<h2>二、问题模式（按严重度排序）</h2>__DEDUP____PATS__
 <h2>三、逐条明细</h2>
 <table class="detail"><thead><tr><th>用例</th><th>用户说 / 判据</th>__HEAD__</tr></thead><tbody>__DETAIL__</tbody></table>
 <div class="foot">生成方式：六步 Agent 流水线（解析 → 造题 → 采集 → 判分 → 归因 → 报告）。
@@ -751,7 +814,7 @@ margin-left:8px;background:#F3F1EA;padding:1px 7px;border-radius:9px}
         "__RID__": run.id, "__BEST__": best,
         "__BESTAVG__": "%.1f" % (agg[best]["avg"] if agg else 0),
         "__NP__": len(patterns.get("模式", [])), "__ROWS__": rows,
-        "__CX__": cx_html,
+        "__CX__": cx_html, "__DEDUP__": dedup_html,
         "__PATS__": pat_html or "<p style='font-size:13px'>未发现明显模式。</p>",
         "__HEAD__": head, "__DETAIL__": detail,
     }.items():
