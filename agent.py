@@ -510,11 +510,16 @@ def dedup_patterns(patterns, scores):
     「触发条件只写了指令是否模糊，没写操作是否可逆」是父模式的
     「执行前强制提示」里没有的，丢了可惜。
 
-    按证据数降序处理，父模式天然先入列；同数量时稳定排序保持模型给出的严重度顺序。
+    排序只用来决定「谁先当父」，不进输出。证据多的先入列，后面的才能判包含；
+    但输出必须回到模型给的顺序 —— 提示词第 4 条要求它按严重度排，这里一重排，
+    报告标题「按严重度排序」就成了假话。
     """
-    pats = sorted(patterns.get("模式", []), key=lambda p: -len(p.get("证据", [])))
+    pats = list(patterns.get("模式", []))
+    if len(pats) < 2:
+        return patterns
+    order = {id(p): i for i, p in enumerate(pats)}      # 模型给的严重度序
     keep, merged = [], []
-    for p in pats:
+    for p in sorted(pats, key=lambda x: -len(x.get("证据", []))):
         b = set(p.get("证据", []))
         if not b:                        # 空证据没有可比性，留着让人看见异常
             keep.append(p)
@@ -534,6 +539,7 @@ def dedup_patterns(patterns, scores):
             parent.setdefault("补充", []).append(
                 {"来源": p.get("名称", ""), "建议": p.get("建议", "")})
             merged.append({"子": p.get("名称", ""), "父": parent.get("名称", "")})
+    keep.sort(key=lambda p: order[id(p)])          # 回到模型给的严重度序
     patterns["模式"] = keep
     if merged:
         patterns["合并"] = merged
@@ -671,7 +677,13 @@ def s6_report(run, plan, objects, cases, scores, patterns):
     run.begin("S6")
     # 老 run 的 s5_patterns.json 里存的是模型当年编的次数，重出报告时在这里就地纠正，
     # 保证「--report-only 出来的报告」和「重新跑一遍出来的报告」数字一致。
+    snap = json.dumps(patterns, ensure_ascii=False, sort_keys=True)
     patterns = enrich_patterns(patterns, scores)
+    if json.dumps(patterns, ensure_ascii=False, sort_keys=True) != snap:
+        # 校正结果要落盘。只放在内存里，报告写 2 条、s5_patterns.json 与界面仍是
+        # 3 条 —— 这正是这个项目最不该出现的错：两处说法不一致。
+        # 先写盘再出报告：写失败就不往下走，不会留下新旧混着的产物。
+        run.write_json("s5_patterns.json", patterns)
     names = [o["name"] for o in objects if not o.get("_dead")]
     agg = {}
     for nm in names:
