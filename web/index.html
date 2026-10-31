@@ -380,8 +380,9 @@ function covBlock(cov){
 }
 function warnBlock(list){
   if(!list || !list.length) return "";
-  return `<div class="warn"><b>自检：${list.length} 处可能需要你确认能不能测</b>` +
-    list.map(w => `<div class="wi">${w.id ? esc(w.id) + " · " : ""}${esc(w.text)}<span>　—— ${esc(w.why)}，请确认这是「要求它承认不知道」还是「要求它去查」</span></div>`).join("") +
+  const TAIL = { boundary: "，确认这是「要求它承认不知道」还是「要求它去查」" };
+  return `<div class="warn"><b>自检：${list.length} 处需要你确认</b>` +
+    list.map(w => `<div class="wi">${w.id ? esc(w.id) + " · " : ""}${esc(w.text)}<span>　—— ${esc(w.why)}${TAIL[w.kind] || ""}</span></div>`).join("") +
     `</div>`;
 }
 const STEP_DESC = {

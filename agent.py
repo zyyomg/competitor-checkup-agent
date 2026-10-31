@@ -264,16 +264,17 @@ def criteria_warnings(cases):
         cid = c.get("id", "")
         t = str(c.get("判据") or "").strip()
         if not t:
-            out.append({"text": "%s 判据是空的" % cid,
-                        "why": "没有判据就只能凭感觉打分，这一条等于没测", "id": cid})
+            out.append({"text": "判据是空的",
+                        "why": "没有判据就只能凭感觉打分，这一条等于没测",
+                        "id": cid, "kind": "criteria"})
             continue
         hit = next((w for w in PARALLEL_WORDS if w in t), None)
         if not hit or any(n in t for n in _PARALLEL_OK):
             continue
-        out.append({"text": "%s 判据串了两个条件：%s" % (cid, t),
+        out.append({"text": "判据串了两个条件：%s" % t,
                     "why": "出现「%s」。判分模型会在两个条件之间折中，同一条回答打分会飘。"
                            "只留最关键的那一个，另一个挪到「期望行为」" % hit,
-                    "id": cid})
+                    "id": cid, "kind": "criteria"})
     return out
 
 
@@ -304,13 +305,14 @@ def refresh_case_warnings(run, cases, plan):
             cov[k - 1]["ids"].append(c.get("id", ""))
         else:
             c["覆盖维度"] = ""
-            warns.append({"text": "%s 没标注覆盖哪条维度" % c.get("id", ""),
+            warns.append({"text": "没标注覆盖哪条维度",
                           "why": "覆盖维度为空或越界，这条题可能和评测目标无关",
-                          "id": c.get("id", "")})
+                          "id": c.get("id", ""), "kind": "coverage"})
     for x in cov:
         if x["n"] == 0:
             warns.append({"text": "维度 %d 没有任何用例：%s" % (x["i"], x["name"]),
-                          "why": "这条维度不会被验证，报告里却会算进「已评测」", "id": ""})
+                          "why": "这条维度不会被验证，报告里却会算进「已评测」",
+                          "id": "", "kind": "coverage"})
     run.state["coverage"] = cov
     run.state["warn_cases"] = warns
     return cov, warns
@@ -324,10 +326,10 @@ def boundary_warnings(texts):
             continue
         hit = next((why for kws, why in BOUNDARY_RULES if any(k in t for k in kws)), None)
         if hit and not any(n in t for n in _BOUNDARY_OK):
-            out.append({"text": t, "why": hit})
+            out.append({"text": t, "why": hit, "kind": "boundary"})
             continue
         if any(w in t for w in SELF_REF_WORDS):
-            out.append({"text": t, "why": "用例不自包含，单轮执行看不到前文"})
+            out.append({"text": t, "why": "用例不自包含，单轮执行看不到前文", "kind": "boundary"})
     return out
 
 
