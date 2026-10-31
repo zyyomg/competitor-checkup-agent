@@ -185,11 +185,11 @@ font-family:inherit;font-size:13px;background:#fff;color:var(--ink)}
     </div>
   </div>
   <div class="row">
-    <label class="n">用例条数 <input type="number" id="n" value="6" min="2" max="12"></label>
+    <label class="n">用例条数 <input type="number" id="n" value="6" min="2" max="12" oninput="updateCalc()"></label>
     <label class="n"><input type="checkbox" id="auto"> 跳过卡点（演示用）</label>
     <button class="go" id="go" onclick="start()">开始体检</button>
   </div>
-  <div class="hint">用例数 × 被测对象数 = 实际调用次数。6 条 × 2 个对象 ≈ 1 分钟、几毛钱。</div>
+  <div class="hint" id="calc">用例数 × 被测对象数 = 实际调用次数。</div>
 </div>
 
 <div class="card">
@@ -310,7 +310,7 @@ async function loadObjs(){
 }
 
 function drawObjs(){
-  if(!OBJS.length){ el("objs").innerHTML = `<div class="hint" style="margin:0">读不到 config.json 里的对象</div>`; return; }
+  if(!OBJS.length){ el("objs").innerHTML = `<div class="hint" style="margin:0">读不到 config.json 里的对象</div>`; updateCalc(); return; }
   el("objs").innerHTML = OBJS.map((o,i)=>`
     <div class="obj${o.enabled?" on":""}">
       <input type="checkbox" ${o.enabled?"checked":""} onchange="toggleObj(${i}, this.checked)">
@@ -318,6 +318,17 @@ function drawObjs(){
       <span class="md">${esc(o.model)}</span>
       ${o.enabled?"":'<span class="off">未启用</span>'}
     </div>`).join("");
+  updateCalc();
+}
+
+// 调用次数是「条数 × 勾上的对象数」，两个都会变，写死的数字迟早跟界面对不上
+function updateCalc(){
+  const t = el("calc"); if(!t) return;
+  const n = parseInt((el("n")||{}).value, 10) || 0;
+  const k = (OBJS || []).filter(o => o.enabled).length;
+  if(!n || !k){ t.textContent = "用例数 × 被测对象数 = 实际调用次数。"; return; }
+  const mins = Math.max(1, Math.round(n * k / 12));
+  t.textContent = `用例数 × 被测对象数 = 实际调用次数。${n} 条 × ${k} 个对象 = ${n*k} 次调用 ≈ ${mins} 分钟、几毛钱。`;
 }
 
 async function toggleObj(i, on){
@@ -689,7 +700,13 @@ const _p = new URLSearchParams(location.search);
 if(_p.get("run")){
   RUN = _p.get("run");
   const want = (_p.get("step") || "").toUpperCase();   // ?step=S2 直接打开那一步的回看
-  poll().then(() => { if(want && LAST) openStep(want); });
+  poll().then(() => {
+    // 从链接进来回看一轮时，把当时的需求和条数填回输入框。否则上面空着、
+    // 下面已经在跑，看着像两回事。
+    if(LAST && LAST.brief && !el("brief").value){ el("brief").value = LAST.brief; clearChip(); }
+    if(LAST && LAST.n){ el("n").value = LAST.n; updateCalc(); }
+    if(want && LAST) openStep(want);
+  });
   TIMER = setInterval(poll, 900);
 }
 </script>
