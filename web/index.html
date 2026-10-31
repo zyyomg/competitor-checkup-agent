@@ -247,8 +247,8 @@ function renderGate(s){
     el("gateBox").innerHTML = `<div class="gate">
       <div class="gt">卡点 1 · 请确认「测什么」</div>
       <div class="gd">Agent 会造出自己测不了的维度（比如纯文本接口却要测语音识别率）。这一步必须人看一眼。<b>下面每个字都能直接改</b>，改完点确认才生效。</div>
-      <div class="kv"><b>场景</b><span>${esc(p["场景"]||"")}</span></div>
-      <div class="kv"><b>目标用户</b><span>${esc(p["目标用户"]||"")}</span></div>
+      <div class="kv"><b>场景</b><div style="flex:1"><textarea class="ed" id="pScene" rows="2" placeholder="这个场景里用户会说什么、被测对象能做什么">${esc(p["场景"]||"")}</textarea></div></div>
+      <div class="kv"><b>目标用户</b><div style="flex:1"><textarea class="ed" id="pUser" rows="2" placeholder="谁在用">${esc(p["目标用户"]||"")}</textarea></div></div>
       <div class="kv"><b>场景名</b><input class="ed1" id="pName" value="${esc(p["场景名"]||"")}" placeholder="6-14 字，做报告标题"></div>
       <div class="kv"><b>评测维度</b><div style="flex:1">${[0,1,2].map(i=>`<textarea class="ed" id="d${i}" rows="2" placeholder="第 ${i+1} 条维度（留空表示不要这条）">${esc((p["评测维度"]||[])[i]||"")}</textarea>`).join("")}</div></div>
       <div class="kv"><b>风险提示</b><div style="flex:1"><textarea class="ed" id="pRisk" rows="2">${esc(p["风险提示"]||"")}</textarea></div></div>
@@ -327,6 +327,8 @@ async function approve(){
     await fetch("/api/edit_plan", {method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({run: RUN, plan: {
         "场景名": ((el("pName")||{}).value || "").trim(),
+        "场景": ((el("pScene")||{}).value || "").trim(),
+        "目标用户": ((el("pUser")||{}).value || "").trim(),
         "评测维度": dims,
         "风险提示": ((el("pRisk")||{}).value || "").trim()
       }})});

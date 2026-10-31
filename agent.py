@@ -596,7 +596,10 @@ def preflight(objects, probe_model):
 def apply_plan(run, plan):
     """卡点 1 上人改过的方案落盘。只接受可编辑字段，避免前端传什么就写什么。"""
     cur = dict(run.state.get("plan") or {})
-    for k in ("场景名", "评测维度", "风险提示"):
+    # 场景和目标用户必须也可改：它们直接决定 S2 往哪个方向造题。
+    # 曾经只开放场景名——结果人把标题改成「家居设备控制评测」，场景描述里
+    # 还留着「小米智能家居」，而题又照着旧描述造，报告从标题到内容自相矛盾。
+    for k in ("场景名", "场景", "目标用户", "评测维度", "风险提示"):
         if k in plan:
             cur[k] = plan[k]
     cur["评测维度"] = [str(x).strip() for x in (cur.get("评测维度") or []) if str(x).strip()][:3]
